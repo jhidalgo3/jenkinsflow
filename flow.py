@@ -241,7 +241,7 @@ class _SingleJob(_JobControl):
         # There is no separate retry for individual jobs, so set self.total_max_tries to the same as parent flow!
         self.total_max_tries = self.parent_flow.total_max_tries
         self.job = None
-        self.old_build = None
+        self.old_build_num = None
         self.name = job_name_prefix + job_name
         self.repr_str = self.name
         self.jenkins_baseurl = None
@@ -251,7 +251,10 @@ class _SingleJob(_JobControl):
     def _prepare_first(self, require_job=False):
         try:
             if require_job:
-                self.api.poll()
+                if hasattr(self.api, 'job_poll'):
+                    self.api.poll_job(self.name)
+                else:
+                    self.api.poll()
             self.job = self.api.get_job(self.name)
         except Exception as ex:
             # TODO? stack trace
@@ -279,7 +282,7 @@ class _SingleJob(_JobControl):
         self.repr_str = part1 + ('?' + '&'.join(query) if query else '')
 
         print(self.indentation + "job: ", end='')
-        self._print_status_message(self.old_build)
+        self._print_status_message(self.old_build_num)
         if self.top_flow.direct_url:
             self.jenkins_baseurl = self.job.baseurl.replace('/job/' + self.name, '/')
 
@@ -289,13 +292,14 @@ class _SingleJob(_JobControl):
     def progress_status(self):
         return Progress.RUNNING if self.job.is_running() else Progress.QUEUED if self.job.is_queued() else Progress.IDLE
 
-    def _print_status_message(self, build):
-        print(repr(self.job.name), "Status", self.progress_status().name, "- latest build:", '#' + str(build.buildno) if build else None)
+    def _print_status_message(self, build_num):
+        print(repr(self.job.name), "Status", self.progress_status().name, "- latest build:", '#' + str(build_num) if build_num else None)
 
     def _prepare_to_invoke(self, reset_tried_times=False):
         super(_SingleJob, self)._prepare_to_invoke(reset_tried_times)
         self.job.poll()
-        self.old_build = self.job.get_last_build_or_none()
+        old_build = self.job.get_last_build_or_none()
+        self.old_build_num = old_build.buildno if old_build else None
 
     def _check(self, report_now):
         if self.job is None:
@@ -321,16 +325,15 @@ class _SingleJob(_JobControl):
                     traceback.print_exc()
                 time.sleep(0.1 / _hyperspeed_speedup)
 
-        old_buildno = (self.old_build.buildno if self.old_build else None)
-        if build is None or build.buildno == old_buildno or build.is_running():
+        if build is None or build.buildno == self.old_build_num or build.is_running():
             if report_now:
-                self._print_status_message(build)
+                self._print_status_message(build.buildno if build else self.old_build_num)
             return
 
         # The job has stopped running
         print ("job", self, "stopped running")
         self.checking_status = Checking.FINISHED
-        self._print_status_message(build)
+        self._print_status_message(build.buildno)
         self.result = BuildResult[build.get_status()]
         url = build.get_result_url().replace('testReport/api/python', 'console').replace('testReport/api/json', 'console')
         if self.top_flow.direct_url:
@@ -715,6 +718,8 @@ class _TopLevelControllerMixin(object):
         print("--- Starting flow ---")
         sleep_time = min(self.poll_interval, self.report_interval) / _hyperspeed_speedup
         while self.checking_status == Checking.MUST_CHECK:
+            if hasattr(self.api, 'quick_poll'):
+                self.api.quick_poll()
             self._check(None)
             time.sleep(sleep_time)
 

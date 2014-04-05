@@ -12,12 +12,13 @@ here = os.path.abspath(os.path.dirname(__file__))
 sys.path.extend([jp(here, '../../..'), jp(here, '../../demo')])
 import demo_security as security
 
-import jenkinsapi
-from jenkinsapi import jenkins
+from restkit import BasicAuth
+from jenkinsflow import specialized_api as jenkins
 
 from jenkinsflow.unbuffered import UnBuffered
 sys.stdout = UnBuffered(sys.stdout)
 
+from jenkinsflow.specialized_api import UnknownJobException
 from jenkinsflow.jobload import update_job_from_template
 from jenkinsflow.flow import is_mocked, hyperspeed_time
 
@@ -81,16 +82,18 @@ class WrapperJob(ObjectWrapper, TestJob):
     expect_order = None
     unknown_result = None
     final_result = None
+    serial = None
 
     invocation = None
     invocation_time = None
     invocation_delay = None
+    end_time = None
     actual_order = None
 
-    def __init__(self, jenkins_job, exec_time, max_fails, expect_invocations, expect_order, unknown_result, final_result):
+    def __init__(self, jenkins_job, exec_time, max_fails, expect_invocations, expect_order, unknown_result, final_result, serial):
         ObjectWrapper.__init__(self, jenkins_job)
         TestJob.__init__(self, exec_time=exec_time, max_fails=max_fails, expect_invocations=expect_invocations, expect_order=expect_order,
-                         initial_buildno=None, invocation_delay=0.01, unknown_result=unknown_result, final_result=final_result)
+                         initial_buildno=None, invocation_delay=0.01, unknown_result=unknown_result, final_result=final_result, serial=serial)
 
     def invoke(self, securitytoken=None, block=False, skip_if_running=False, invoke_pre_check_delay=3, invoke_block_delay=15, build_params=None, cause=None, files=None):
         self.invocation_time = time.time()
@@ -150,12 +153,15 @@ class MockApi(TestJenkins):
     def poll(self):
         pass
 
+    def quick_poll(self):
+        pass
+
     # Delete/Create hack sufficient to get resonable coverage on job_load test
     def delete_job(self, job_name):
         try:
             self._deleted_jobs[job_name] = self.test_jobs[job_name]
         except KeyError:
-            raise jenkinsapi.custom_exceptions.UnknownJob("Job not found: " + job_name)
+            raise UnknownJobException(job_name)
         del self.test_jobs[job_name]
 
     def create_job(self, job_name, config_xml):
@@ -166,16 +172,17 @@ class MockApi(TestJenkins):
         try:
             return self.test_jobs[name]
         except KeyError:
-            raise jenkinsapi.custom_exceptions.UnknownJob("Job not found: " + name)
+            raise UnknownJobException(name)
 
 
-class JenkinsWrapperApi(jenkins.Jenkins, TestJenkins):
+class JenkinsWrapperApi(jenkins.JenkinsResource, TestJenkins):
     job_xml_template = jp(here, 'job.xml.tenjin')
 
     def __init__(self, file_name, func_name, func_num_params, job_name_prefix, reload_jobs, pre_delete_jobs, jenkinsurl, direct_url, username, password, securitytoken):
         TestJenkins.__init__(self, job_name_prefix=job_name_prefix)
-        jenkins.Jenkins.__init__(self, baseurl=jenkinsurl)
-        self.job_loader_jenkins = jenkins.Jenkins(baseurl=jenkinsurl, username=username, password=password)
+        jenkins.JenkinsResource.__init__(self, public_uri=jenkinsurl, direct_uri=direct_url, job_prefix_filter=job_name_prefix,
+                                         filters=[BasicAuth(username, password)])
+        self.job_loader_jenkins = jenkins.JenkinsResource(public_uri=jenkinsurl, direct_uri=direct_url, filters=[BasicAuth(username, password)])
         self.file_name = file_name
         self.func_name = func_name
         self.func_num_params = func_num_params
@@ -233,12 +240,14 @@ class JenkinsWrapperApi(jenkins.Jenkins, TestJenkins):
     def get_job(self, name):
         try:
             job = self.test_jobs[name]
+            jenkins_job = super(JenkinsWrapperApi, self).get_job(name)
             if isinstance(job, MockJob):
-                jenkins_job = super(JenkinsWrapperApi, self).get_job(name)
-                self.test_jobs[name] = job = WrapperJob(jenkins_job, job.exec_time, job.max_fails, job.expect_invocations, job.expect_order, job.unknown_result, job.final_result)
+                self.test_jobs[name] = job = WrapperJob(jenkins_job, job.exec_time, job.max_fails, job.expect_invocations, job.expect_order, job.unknown_result, job.final_result, job.serial)
+            assert isinstance(job, WrapperJob)
+            job.__subject__ = jenkins_job
             return job
         except KeyError:
-            raise jenkinsapi.custom_exceptions.UnknownJob(name)
+            raise UnknownJobException(name)
 
 
 def api(file_name, jenkinsurl=os.environ.get('JENKINS_URL') or os.environ.get('HUDSON_URL') or "http://localhost:8080"):
@@ -266,7 +275,7 @@ def api(file_name, jenkinsurl=os.environ.get('JENKINS_URL') or os.environ.get('H
         return MockApi(job_name_prefix, jenkinsurl)
     else:
         print('Using Real Jenkins API with wrapper')
-        reload_jobs = os.environ.get('JENKINSFLOW_SKIP_JOB_LOAD') != 'true'
+        reload_jobs = os.environ.get('JENKINSFLOW_SKIP_JOB_CREATE') != 'true'
         pre_delete_jobs = os.environ.get('JENKINSFLOW_SKIP_JOB_DELETE') != 'true'
         direct_url = os.environ.get('JENKINSFLOW_DIRECT_URL') or 'http://localhost:8080'
         return JenkinsWrapperApi(file_name, func_name, func_num_params, job_name_prefix, reload_jobs, pre_delete_jobs,
