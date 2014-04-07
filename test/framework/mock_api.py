@@ -12,13 +12,17 @@ here = os.path.abspath(os.path.dirname(__file__))
 sys.path.extend([jp(here, '../../..'), jp(here, '../../demo')])
 import demo_security as security
 
-from restkit import BasicAuth
-from jenkinsflow import specialized_api as jenkins
+use_jenkinsapi = os.environ.get('JENKINSFLOW_USE_JENKINSAPI') == 'true'
+if use_jenkinsapi:
+    from jenkinsapi import jenkins
+    from jenkinsapi.custom_exceptions import UnknownJob as UnknownJobException
+else:
+    from jenkinsflow import specialized_api as jenkins
+    from jenkinsflow.specialized_api import UnknownJobException
 
 from jenkinsflow.unbuffered import UnBuffered
 sys.stdout = UnBuffered(sys.stdout)
 
-from jenkinsflow.specialized_api import UnknownJobException
 from jenkinsflow.jobload import update_job_from_template
 from jenkinsflow.flow import is_mocked, hyperspeed_time
 
@@ -175,14 +179,18 @@ class MockApi(TestJenkins):
             raise UnknownJobException(name)
 
 
-class JenkinsWrapperApi(jenkins.JenkinsResource, TestJenkins):
+class JenkinsWrapperApi(jenkins.Jenkins, TestJenkins):
     job_xml_template = jp(here, 'job.xml.tenjin')
 
-    def __init__(self, file_name, func_name, func_num_params, job_name_prefix, reload_jobs, pre_delete_jobs, jenkinsurl, direct_url, username, password, securitytoken):
+    def __init__(self, file_name, func_name, func_num_params, job_name_prefix, reload_jobs, pre_delete_jobs, jenkinsurl, direct_url,
+                 username, password, securitytoken):
         TestJenkins.__init__(self, job_name_prefix=job_name_prefix)
-        jenkins.JenkinsResource.__init__(self, public_uri=jenkinsurl, direct_uri=direct_url, job_prefix_filter=job_name_prefix,
-                                         filters=[BasicAuth(username, password)])
-        self.job_loader_jenkins = jenkins.JenkinsResource(public_uri=jenkinsurl, direct_uri=direct_url, filters=[BasicAuth(username, password)])
+        if use_jenkinsapi:
+            jenkins.Jenkins.__init__(self, jenkinsurl)
+            self.job_loader_jenkins = jenkins.Jenkins(jenkinsurl, username=username, password=password)
+        else:
+            jenkins.Jenkins.__init__(self, public_uri=jenkinsurl, direct_uri=direct_url, job_prefix_filter=job_name_prefix, username=username, password=password)
+            self.job_loader_jenkins = jenkins.Jenkins(public_uri=jenkinsurl, direct_uri=direct_url, username=username, password=password)
         self.file_name = file_name
         self.func_name = func_name
         self.func_num_params = func_num_params

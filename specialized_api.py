@@ -97,9 +97,16 @@ class ApiBuild(object):
         return self.job.name + " #" + repr(self.buildno)
 
 
-class JenkinsResource(Resource):
-    def __init__(self, public_uri, direct_uri, job_prefix_filter=None, **kwargs):
-        super(JenkinsResource, self).__init__(direct_uri, **kwargs)
+class Jenkins(Resource):
+    def __init__(self, public_uri, direct_uri, job_prefix_filter=None, username=None, password=None, **kwargs):
+        if username or password:
+            if not username and password:
+                raise Exception("You must specify both username and password or neither")
+        filters = kwargs.get('filters', [])
+        filters.append(BasicAuth(username, password))
+        kwargs['filters'] = filters
+        super(Jenkins, self).__init__(direct_uri, **kwargs)
+
         self.public_uri = None if public_uri is None else public_uri.rstrip('/')
         self.baseurl = self.public_uri
         self.direct_uri = direct_uri.rstrip('/')
