@@ -92,7 +92,7 @@ class ApiBuild(object):
     @property
     def buildno(self):
         return self.dct['number']
-    
+
     def __repr__(self):
         return self.job.name + " #" + repr(self.buildno)
 
