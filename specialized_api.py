@@ -2,7 +2,7 @@
 # All rights reserved. This work is under a BSD license, see LICENSE.TXT.
 
 import json
-from restkit import Resource, BasicAuth, errors, forms
+from restkit import Resource, BasicAuth, errors
 
 
 class UnknownJobException(Exception):
@@ -102,9 +102,9 @@ class Jenkins(Resource):
         if username or password:
             if not username and password:
                 raise Exception("You must specify both username and password or neither")
-        filters = kwargs.get('filters', [])
-        filters.append(BasicAuth(username, password))
-        kwargs['filters'] = filters
+            filters = kwargs.get('filters', [])
+            filters.append(BasicAuth(username, password))
+            kwargs['filters'] = filters
         super(Jenkins, self).__init__(direct_uri, **kwargs)
 
         self.public_uri = None if public_uri is None else public_uri.rstrip('/')
@@ -153,7 +153,7 @@ class Jenkins(Resource):
             if job:
                 job.dct = job_dct
             else:
-                raise Exception("job not found")
+                # A new job was created while flow was running
                 self.job_poll(job_name)
 
     def job_poll(self, job_name):
