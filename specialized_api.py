@@ -100,7 +100,7 @@ class ApiBuild(object):
 class Jenkins(Resource):
     def __init__(self, public_uri, direct_uri, job_prefix_filter=None, username=None, password=None, **kwargs):
         if username or password:
-            if not username and password:
+            if not (username and password):
                 raise Exception("You must specify both username and password or neither")
             filters = kwargs.get('filters', [])
             filters.append(BasicAuth(username, password))
