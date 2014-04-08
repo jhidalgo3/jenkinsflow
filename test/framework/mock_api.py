@@ -189,8 +189,8 @@ class JenkinsWrapperApi(jenkins.Jenkins, TestJenkins):
             jenkins.Jenkins.__init__(self, jenkinsurl)
             self.job_loader_jenkins = jenkins.Jenkins(jenkinsurl, username=username, password=password)
         else:
-            jenkins.Jenkins.__init__(self, public_uri=jenkinsurl, direct_uri=direct_url, job_prefix_filter=job_name_prefix)
-            self.job_loader_jenkins = jenkins.Jenkins(public_uri=jenkinsurl, direct_uri=direct_url, username=username, password=password)
+            jenkins.Jenkins.__init__(self, direct_uri=direct_url, job_prefix_filter=job_name_prefix)
+            self.job_loader_jenkins = jenkins.Jenkins(direct_uri=direct_url, job_prefix_filter=job_name_prefix, username=username, password=password)
         self.file_name = file_name
         self.func_name = func_name
         self.func_num_params = func_num_params

@@ -19,8 +19,7 @@ class ApiJob(object):
         self.que_item_why = que_item_why
 
         self.build = None
-        self.public_uri = self.jenkins_resource.public_job_url(self.name)
-        self.baseurl = self.public_uri
+        self.public_uri = self.baseurl = self.jenkins_resource.public_job_url(self.name)
 
         actions = self.dct.get('actions') or []
         for action in actions:
@@ -98,7 +97,11 @@ class ApiBuild(object):
 
 
 class Jenkins(Resource):
-    def __init__(self, public_uri, direct_uri, job_prefix_filter=None, username=None, password=None, **kwargs):
+    def __init__(self, direct_uri, job_prefix_filter=None, username=None, password=None, **kwargs):
+        """
+        direct_uri should be a non-proxied uri if possible (e.g. http://localhost:<port> if flow job is running on master)
+        The public_uri will be retrieved from Jenkins and used in output
+        """
         if username or password:
             if not (username and password):
                 raise Exception("You must specify both username and password or neither")
@@ -107,11 +110,31 @@ class Jenkins(Resource):
             kwargs['filters'] = filters
         super(Jenkins, self).__init__(direct_uri, **kwargs)
 
-        self.public_uri = None if public_uri is None else public_uri.rstrip('/')
-        self.baseurl = self.public_uri
-        self.direct_uri = direct_uri.rstrip('/')
         self.job_prefix_filter = job_prefix_filter
+        self._public_uri = self._baseurl = None
         self.jobs = None
+
+    @property
+    def baseurl(self):
+        return self.public_uri
+
+    @baseurl.setter
+    def baseurl(self, value):
+        self._public_uri = self._baseurl = value
+
+    @property
+    def public_uri(self):
+        if not self._public_uri:
+            query = "primaryView[url]"
+            response = self.get("/api/json", tree=query)
+            dct = json.loads(response.body_string())
+            print "dct:", dct
+            self._public_uri = self._baseurl = dct['primaryView']['url'].rstrip('/')
+        return self._public_uri
+
+    @public_uri.setter
+    def public_uri(self, value):
+        self._public_uri = self._baseurl = value
 
     def public_job_url(self, job_name):
         return self.public_uri + '/job/' + job_name
@@ -131,7 +154,7 @@ class Jenkins(Resource):
         query = "jobs[name,lastBuild[number,building,result],inQueue,queueItem[why],actions[parameterDefinitions[name,type]]],primaryView[url]"
         response = self.get("/api/json", tree=query)
         dct = json.loads(response.body_string())
-        self.baseurl = self.public_uri = dct['primaryView']['url'].rstrip('/')
+        self._public_uri = self._baseurl = dct['primaryView']['url'].rstrip('/')
 
         self.jobs = {}
         for job_dct in dct.get('jobs') or []:
